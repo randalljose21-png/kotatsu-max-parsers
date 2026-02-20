@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.all
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.json.JSONArray
 import org.json.JSONObject
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -227,8 +228,30 @@ internal abstract class WeebDexParser(
 
         // Get chapters for this language
         val mangaId = manga.url.substringAfterLast("/")
-        val chaptersJson = webClient.httpGet("${apiUrl}manga/$mangaId/chapters?lang=$lang&limit=500&order=desc").parseJson()
-        val chapters = parseChapterList(chaptersJson, mangaId)
+
+        val chaptersJsonData = JSONArray()
+
+        // handle the server-side paging of chapters
+        var currentPage = 1
+        do {
+            val chaptersPageJson =
+                webClient.httpGet("${apiUrl}manga/$mangaId/chapters?lang=$lang&limit=500&order=desc&page=$currentPage").parseJson()
+
+            val totalCount = chaptersPageJson.getInt("total")
+
+            val chaptersPageJsonData = chaptersPageJson.getJSONArray("data")
+            chaptersJsonData.putAll(chaptersPageJsonData)
+
+            currentPage += 1
+
+            // Stop either:
+            // - when we collect the full reported number of chapters
+            // - or when we get an empty page.
+            //   This makes the loop terminate in case the total amount could not be retrieved
+            //    due to chapter list changing while we are retrieving it or due to bugs
+        } while (totalCount > chaptersJsonData.length() && chaptersPageJsonData.length() > 0)
+
+        val chapters = parseChapterList(chaptersJsonData, mangaId)
 
         return manga.copy(
             description = description,
@@ -241,8 +264,7 @@ internal abstract class WeebDexParser(
         )
     }
 
-    private fun parseChapterList(json: JSONObject, mangaId: String): List<MangaChapter> {
-        val data = json.getJSONArray("data")
+    private fun parseChapterList(data: JSONArray, mangaId: String): List<MangaChapter> {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ENGLISH).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }

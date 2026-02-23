@@ -389,6 +389,22 @@ internal class MangaBuff(context: MangaLoaderContext) :
 				)
 			}
 		}
+		if (tags.isEmpty()) {
+			// New filter UI uses simple-select options with data-id instead of native <select>.
+			doc.select(".ss-list .ss-option[data-id], .ss-option[data-id]").forEach { option ->
+				val value = option.attr("data-id").trim()
+				val title = option.text().trim()
+				if (value.isNotEmpty() && title.isNotEmpty()) {
+					tags.add(
+						MangaTag(
+							key = TAG_GENRE_PREFIX + value,
+							title = title,
+							source = source,
+						),
+					)
+				}
+			}
+		}
 		doc.select("select[name='tags[]'] option, [name='tags[]'] option").forEach { option ->
 			val value = option.attr("value").trim()
 			val title = option.text().trim()

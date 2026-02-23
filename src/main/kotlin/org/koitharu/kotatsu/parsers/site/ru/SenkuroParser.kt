@@ -567,16 +567,14 @@ internal class SenkuroParser(context: MangaLoaderContext) :
 							lang
 							content
 						}
-						cover {
-							original {
-								url
-							}
+					cover {
+						original {
+							url
 						}
-						status
-						rating
 					}
 				}
 			}
+		}
 			"""
 		}
 

@@ -128,8 +128,8 @@ internal class YomuMangas(context: MangaLoaderContext) :
 	}
 
 	override suspend fun getDetails(manga: Manga): Manga {
-		val detailsPath = manga.url.substringBeforeLast("/", manga.url)
-		val response = webClient.httpGet("$apiUrl$detailsPath", getApiHeaders()).parseJson()
+		val mangaApiId = extractMangaApiId(manga)
+		val response = webClient.httpGet("$apiUrl/mangas/$mangaApiId", getApiHeaders()).parseJson()
 		val series = response.optJSONObject("manga") ?: response
 		val parsed = parseMangaFromSeries(series, fallbackUrl = manga.url) ?: manga
 		val chapters = fetchChapters(series)
@@ -413,11 +413,22 @@ internal class YomuMangas(context: MangaLoaderContext) :
 		val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
 		return when {
 			value.startsWith("http://") || value.startsWith("https://") -> value
-			value.startsWith("b2://") -> "$cdnUrl/${value.removePrefix("b2://")}"
+			value.startsWith("b2://") -> "$b2CdnUrl/${value.removePrefix("b2://")}"
 			value.startsWith("s3://") -> "$cdnUrl/${value.removePrefix("s3://")}"
 			value.startsWith("/") -> "$cdnUrl$value"
 			else -> "$cdnUrl/$value"
 		}
+	}
+
+	private fun extractMangaApiId(manga: Manga): Long {
+		if (manga.id > 0L && manga.id < 1_000_000_000_000L) {
+			return manga.id
+		}
+		val fromUrl = manga.url
+			.substringAfterLast('/')
+			.toLongOrNull()
+			?: manga.url.substringAfterLast("/mangas/").substringBefore('/').toLongOrNull()
+		return fromUrl ?: error("Cannot extract manga ID from ${manga.url}")
 	}
 
 	private fun normalizeMangaUrl(value: String?): String? {
@@ -456,6 +467,7 @@ internal class YomuMangas(context: MangaLoaderContext) :
 		private const val ACCEPT_JSON = "application/json"
 		private const val apiUrl = "https://api.yomumangas.com"
 		private const val cdnUrl = "https://s3.yomumangas.com"
+		private const val b2CdnUrl = "https://b2.yomumangas.com"
 		private val datePatterns = listOf(
 			"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
 			"yyyy-MM-dd'T'HH:mm:ssXXX",

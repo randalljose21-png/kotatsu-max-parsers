@@ -35,11 +35,15 @@ import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 import org.koitharu.kotatsu.parsers.util.toRelativeUrl
 import java.text.SimpleDateFormat
 import java.util.EnumSet
+import java.util.LinkedHashSet
 import java.util.Locale
 
 @MangaSourceParser("YOMUMANGAS", "Yomu Mangas", "pt")
 internal class YomuMangas(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.YOMUMANGAS, pageSize = 18) {
+
+	@Volatile
+	private var genreIndex: Map<String, MangaTag> = emptyMap()
 
 	override val configKeyDomain = ConfigKey.Domain("yomumangas.com")
 
@@ -58,8 +62,8 @@ internal class YomuMangas(context: MangaLoaderContext) :
 		.build()
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(
-		SortOrder.POPULARITY,
 		SortOrder.UPDATED,
+		SortOrder.POPULARITY,
 		SortOrder.NEWEST,
 		SortOrder.ALPHABETICAL_DESC,
 	)
@@ -90,14 +94,11 @@ internal class YomuMangas(context: MangaLoaderContext) :
 	}
 
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-		if (order == SortOrder.UPDATED && filter.isEmpty()) {
-			return if (page == 1) parseLatestHomepage() else emptyList()
-		}
-
+		val effectiveOrderBy = if (filter.isEmpty()) "updatedAt" else order.toApiOrderBy()
 		val url = "$apiUrl/mangas".toHttpUrl().newBuilder().apply {
 			addQueryParameter("query", filter.query.orEmpty())
 			addQueryParameter("page", page.toString())
-			addQueryParameter("orderBy", order.toApiOrderBy())
+			addQueryParameter("orderBy", effectiveOrderBy)
 
 			if (filter.tags.isNotEmpty()) {
 				addQueryParameter("genreIds", filter.tags.joinToString(",") { it.key })
@@ -157,32 +158,6 @@ internal class YomuMangas(context: MangaLoaderContext) :
 				id = generateUid(url),
 				url = url.toRelativeUrl(domain),
 				preview = null,
-				source = source,
-			)
-		}
-	}
-
-	private suspend fun parseLatestHomepage(): List<Manga> {
-		val doc = webClient.httpGet("https://$domain", getRequestHeaders()).parseHtml()
-		return doc.select("[class*=styles_Container]:has(h1:contains(capítulos)) [class*=styles_Card]").mapNotNull { card ->
-			val a = card.selectFirst("a[class*=styles_Title], a[href]") ?: return@mapNotNull null
-			val href = a.attr("href")
-				.takeIf { it.isNotBlank() }
-				?.toRelativeUrl(domain)
-				?: return@mapNotNull null
-			val title = a.text().trim().ifEmpty { return@mapNotNull null }
-			Manga(
-				id = generateUid(href),
-				url = href,
-				publicUrl = href.toAbsoluteUrl(domain),
-				title = title,
-				altTitles = emptySet(),
-				rating = RATING_UNKNOWN,
-				contentRating = null,
-				coverUrl = card.selectFirst("img")?.src(),
-				tags = emptySet(),
-				state = null,
-				authors = emptySet(),
 				source = source,
 			)
 		}
@@ -266,6 +241,7 @@ internal class YomuMangas(context: MangaLoaderContext) :
 		if (fromArray != null) {
 			val tags = parseTagsArray(fromArray)
 			if (tags.isNotEmpty()) {
+				genreIndex = tags.associateBy { it.key }
 				return tags
 			}
 		}
@@ -276,6 +252,7 @@ internal class YomuMangas(context: MangaLoaderContext) :
 		if (fromObject != null) {
 			val tags = parseTagsArray(fromObject.optJSONArray("genres") ?: fromObject.optJSONArray("data") ?: JSONArray())
 			if (tags.isNotEmpty()) {
+				genreIndex = tags.associateBy { it.key }
 				return tags
 			}
 		}
@@ -312,38 +289,36 @@ internal class YomuMangas(context: MangaLoaderContext) :
 				?: fallbackUrl,
 		) ?: return null
 
-		val tags = series.optJSONArray("genres")?.mapJSONNotNull { genre ->
-			val key = genre.opt("id")?.toString()?.trim().orEmpty()
-			val title = genre.getStringOrNull("name")
-			if (key.isBlank() || title.isNullOrBlank()) {
-				null
-			} else {
-				MangaTag(
-					key = key,
-					title = title,
-					source = source,
-				)
-			}
-		}?.toSet().orEmpty()
+		val tags = parseSeriesTags(series)
 
 		val author = series.getStringOrNull("author")
 		val artist = series.getStringOrNull("artist")
+		val authors = LinkedHashSet<String>(8).apply {
+			addAll(parsePeopleArray(series.optJSONArray("authors")))
+			addAll(parsePeopleArray(series.optJSONArray("artists")))
+			author?.let(::add)
+			artist?.let(::add)
+		}.filter { it.isNotBlank() }.toSet()
 
 		val description = series.getStringOrNull("description")
 			?: series.getStringOrNull("synopsis")
 			?: series.getStringOrNull("postContent")
 
-		val cover = series.getStringOrNull("thumbnail")
+		val cover = parseAssetUrl(
+			series.getStringOrNull("thumbnail")
 			?: series.getStringOrNull("featuredImage")
 			?: series.getStringOrNull("cover")
 			?: series.getStringOrNull("poster")
+			?: series.getStringOrNull("banner"),
+		)
 
 		val status = (series.getStringOrNull("seriesStatus")
 			?: series.getStringOrNull("status"))
 			?.uppercase(Locale.ROOT)
 
 		val isAdult = series.getBooleanOrDefault("nsfw", false) ||
-			series.getBooleanOrDefault("adult", false)
+			series.getBooleanOrDefault("adult", false) ||
+			series.getBooleanOrDefault("hentai", false)
 
 		return Manga(
 			id = if (id > 0L) id else generateUid(url),
@@ -360,11 +335,11 @@ internal class YomuMangas(context: MangaLoaderContext) :
 			description = description,
 			rating = RATING_UNKNOWN,
 			tags = tags,
-			authors = setOfNotNull(author, artist),
+			authors = authors,
 			state = when (status) {
 				"ONGOING" -> MangaState.ONGOING
 				"HIATUS" -> MangaState.PAUSED
-				"COMPLETED" -> MangaState.FINISHED
+				"COMPLETED", "COMPLETE", "FINISHED" -> MangaState.FINISHED
 				"DROPPED", "CANCELLED" -> MangaState.ABANDONED
 				"COMING_SOON" -> MangaState.UPCOMING
 				else -> null
@@ -391,6 +366,60 @@ internal class YomuMangas(context: MangaLoaderContext) :
 		return 0L
 	}
 
+	private fun parseSeriesTags(series: JSONObject): Set<MangaTag> {
+		val result = LinkedHashSet<MangaTag>(8)
+		val genres = series.optJSONArray("genres")
+		if (genres != null) {
+			for (i in 0 until genres.length()) {
+				when (val item = genres.opt(i)) {
+					is JSONObject -> {
+						val key = item.opt("id")?.toString()?.trim().orEmpty()
+						val title = item.getStringOrNull("name") ?: item.getStringOrNull("title")
+						if (key.isNotBlank() && !title.isNullOrBlank()) {
+							result.add(MangaTag(key = key, title = title, source = source))
+						}
+					}
+
+					is Number -> {
+						val key = item.toString()
+						genreIndex[key]?.let(result::add)
+					}
+
+					is String -> {
+						val key = item.trim()
+						if (key.isNotEmpty()) {
+							genreIndex[key]?.let(result::add)
+						}
+					}
+				}
+			}
+		}
+		return result
+	}
+
+	private fun parsePeopleArray(array: JSONArray?): Set<String> {
+		if (array == null) return emptySet()
+		val result = LinkedHashSet<String>(array.length())
+		for (i in 0 until array.length()) {
+			val name = array.optString(i).trim()
+			if (name.isNotEmpty() && name != "null") {
+				result.add(name)
+			}
+		}
+		return result
+	}
+
+	private fun parseAssetUrl(raw: String?): String? {
+		val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+		return when {
+			value.startsWith("http://") || value.startsWith("https://") -> value
+			value.startsWith("b2://") -> "$cdnUrl/${value.removePrefix("b2://")}"
+			value.startsWith("s3://") -> "$cdnUrl/${value.removePrefix("s3://")}"
+			value.startsWith("/") -> "$cdnUrl$value"
+			else -> "$cdnUrl/$value"
+		}
+	}
+
 	private fun normalizeMangaUrl(value: String?): String? {
 		val raw = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
 		if (raw.startsWith("http://") || raw.startsWith("https://")) {
@@ -410,7 +439,7 @@ internal class YomuMangas(context: MangaLoaderContext) :
 	private fun MangaState.toApiSeriesStatus(): String? = when (this) {
 		MangaState.ONGOING -> "ONGOING"
 		MangaState.PAUSED -> "HIATUS"
-		MangaState.FINISHED -> "COMPLETED"
+		MangaState.FINISHED -> "COMPLETE"
 		MangaState.ABANDONED -> "DROPPED"
 		else -> null
 	}
@@ -426,6 +455,7 @@ internal class YomuMangas(context: MangaLoaderContext) :
 	private companion object {
 		private const val ACCEPT_JSON = "application/json"
 		private const val apiUrl = "https://api.yomumangas.com"
+		private const val cdnUrl = "https://s3.yomumangas.com"
 		private val datePatterns = listOf(
 			"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
 			"yyyy-MM-dd'T'HH:mm:ssXXX",

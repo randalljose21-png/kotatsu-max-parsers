@@ -107,7 +107,7 @@ internal class AsuraScansParser(context: MangaLoaderContext) :
 		val doc = webClient.httpGet(url).parseHtml()
 		return doc.select("#series-grid .series-card").mapNotNull { card ->
 			val link = card.selectFirst("a[href*=/comics/]") ?: return@mapNotNull null
-			val href = "/" + link.attrAsRelativeUrl("href")
+			val href = link.attrAsRelativeUrl("href")
 			Manga(
 				id = generateUid(href),
 				url = href,
@@ -182,7 +182,7 @@ internal class AsuraScansParser(context: MangaLoaderContext) :
 			tags = tags,
 			authors = setOf(author),
 			chapters = doc.select("a.group[href*=/chapter/]").mapChapters(reversed = true) { i, a ->
-				val urlRelative = "/" + a.attrAsRelativeUrl("href")
+				val urlRelative = a.attrAsRelativeUrl("href")
 				val titleElement = a.selectFirst("span.font-medium") ?: a.selectFirst("span")
 				val chapterLabel = titleElement?.text()?.trim()?.takeIf { it.isNotEmpty() }
 				val chapterTitle = a.selectFirst("span.text-sm.text-white\\/50")

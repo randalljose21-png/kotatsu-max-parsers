@@ -234,14 +234,19 @@ internal abstract class WeebDexParser(
 
         // handle the server-side paging of chapters
         var currentPage = 1
+        var lastPageCount: Int
+        var totalCount: Int
         do {
             val chaptersPageJson =
                 webClient.httpGet("${apiUrl}manga/$mangaId/chapters?lang=$lang&limit=500&order=desc&page=$currentPage").parseJson()
 
-            val totalCount = chaptersPageJson.getInt("total")
+            totalCount = chaptersPageJson.getInt("total")
 
             val chaptersPageJsonData = chaptersPageJson.getJSONArray("data")
-            chaptersJsonData.putAll(chaptersPageJsonData)
+            lastPageCount = chaptersPageJsonData.length()
+            for (index in 0 until lastPageCount) {
+                chaptersJsonData.put(chaptersPageJsonData.get(index))
+            }
 
             currentPage += 1
 
@@ -250,7 +255,7 @@ internal abstract class WeebDexParser(
             // - or when we get an empty page.
             //   This makes the loop terminate in case the total amount could not be retrieved
             //    due to chapter list changing while we are retrieving it or due to bugs
-        } while (totalCount > chaptersJsonData.length() && chaptersPageJsonData.length() > 0)
+        } while (totalCount > chaptersJsonData.length() && lastPageCount > 0)
 
         val chapters = parseChapterList(chaptersJsonData, mangaId)
 

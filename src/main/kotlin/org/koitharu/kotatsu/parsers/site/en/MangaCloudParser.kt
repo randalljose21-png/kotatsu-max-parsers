@@ -9,7 +9,10 @@ import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.EnumSet
+import java.util.TimeZone
 
 @MangaSourceParser("MANGACLOUD", "MangaCloud", "en", ContentType.MANGA)
 internal class MangaCloud(context: MangaLoaderContext) :
@@ -173,7 +176,7 @@ internal class MangaCloud(context: MangaLoaderContext) :
 			rating = RATING_UNKNOWN,
 			contentRating = ContentRating.SAFE,
 			tags = tags,
-			state = parseState(status),
+			state = null,
 			authors = emptySet(),
 			source = source,
 		)
@@ -271,8 +274,8 @@ internal class MangaCloud(context: MangaLoaderContext) :
 
 
 	private fun parseDate(dateStr: String): Long = try {
-		val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.ROOT)
-		sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+		val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT)
+		sdf.timeZone = TimeZone.getTimeZone("UTC")
 		sdf.parse(dateStr)?.time ?: 0L
 	} catch (_: Exception) { 0L }
 

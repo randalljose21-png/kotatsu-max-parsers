@@ -7,6 +7,4 @@ import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
 
 @MangaSourceParser("SAMURAISCAN", "SamuraiScan", "es")
 internal class SamuraiScan(context: MangaLoaderContext) :
-	MadaraParser(context, MangaParserSource.SAMURAISCAN, "samuraiscan.com", 10) {
-	override val listUrl = "read/"
-}
+	MadaraParser(context, MangaParserSource.SAMURAISCAN, "samurai.j5z.xyz", 10)

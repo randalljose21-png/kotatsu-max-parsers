@@ -1,12 +1,10 @@
-package org.koitharu.kotatsu.parsers.site.comicaso.id
+package org.koitharu.kotatsu.parsers.site.madara.id
 
-import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
-import org.koitharu.kotatsu.parsers.site.comicaso.ComicasoParser
+import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
 
-@Broken
 @MangaSourceParser("COMICAZEN", "Comicazen", "id")
 internal class Comicazen(context: MangaLoaderContext) :
-	ComicasoParser(context, MangaParserSource.COMICAZEN, "comicazen.com", pageSize = 16)
+	MadaraParser(context, MangaParserSource.COMICAZEN, "comicazen.com")
